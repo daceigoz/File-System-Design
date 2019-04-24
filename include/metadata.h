@@ -6,6 +6,7 @@
  * @date	01/03/2017
  */
 
+
 #define bitmap_getbit(bitmap_, i_) (bitmap_[i_ >> 3] & (1 << (i_ & 0x07)))
 static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
   if (val_)
@@ -20,7 +21,8 @@ static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
 
 typedef struct inode{
 
-  char name[32];
+  char dir_path[99];
+  char file_path[132];
   char type; //This will be either "F" for file or "D" for directory.
   struct inode * parent; //Pointer to the directory where the inode is contained.
 
