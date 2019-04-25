@@ -13,7 +13,6 @@
 
 static int num_elements;
 
-
 static struct inode inodes[40];
 
 /*for(int i=0;i<40;++i){
@@ -28,6 +27,9 @@ static struct inode inodes[40];
  */
 int mkFS(long deviceSize)
 {
+
+	bzero(inodes, 40*sizeof(struct inode));
+
 	//Intializing the root directory inode:
 	struct inode root;
 	bzero(&root, sizeof(struct inode));
@@ -149,7 +151,37 @@ int createFile(char *path)
  */
 int removeFile(char *path)
 {
-	return -2;
+	int ret_value=0;
+	/*For removing a file we will have to remove the inode of the file itself,
+	clean the block where the file was stored and romove the reference to the inode
+	from its prent directory*/
+
+	//First we will check if the file's inode exists and remove it:
+
+	struct inode stored_in; //will contain a pointer to the inode of the directory containing the file.
+	bzero(&stored_in, sizeof(struct inode));
+
+	for(int i=0;i<40;++i){//traverse all inodes array to check if the file exists already
+		if(!strcmp(inodes[i].file_path, path)){
+			//REMOVE HERE THE DATA STORED IN THE FILE BLOCK.
+
+			//Removing the reference from the parent directory of the file:
+			for(int j=0;j<10;++j){
+				if(!strcmp(inodes[i].parent->contents[j]->file_path, path)){
+					bzero(&inodes[i].parent->contents[j]->file_path, sizeof(inodes[0].file_path));
+					break;
+				}
+			}
+
+			bzero(&inodes[i], sizeof(struct inode));
+			break;
+		}
+	}
+
+	/*Now, using the parent directory stored in the inode of the file to be removed we will
+	remove the reference to the file*/
+
+	return ret_value;
 }
 
 /*
