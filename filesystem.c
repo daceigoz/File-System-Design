@@ -10,25 +10,22 @@
 #include "include/auxiliary.h"  // Headers for auxiliary functions
 #include "include/metadata.h"   // Type and structure declaration of the file system
 #include <string.h>
+#include <stdlib.h>
 
+#define NUM_INODES 40
 static int num_elements;
 
-static struct inode inodes[40];
+static struct inode inodes[NUM_INODES];
 
-/*for(int i=0;i<40;++i){
-	if(inodes[i]==NULL){
-		inodes[i]=((newinode))
-	}
-}*/
 
 /*
  * @brief 	Generates the proper file system structure in a storage device, as designed by the student.
  * @return 	0 if success, -1 otherwise.
  */
+
 int mkFS(long deviceSize)
 {
-
-	bzero(inodes, 40*sizeof(struct inode));
+	bzero(inodes, NUM_INODES*sizeof(struct inode));
 
 	//Intializing the root directory inode:
 	struct inode root;
@@ -70,7 +67,7 @@ int createFile(char *path)
 	int ret_value=0;
 	//First we obtain the path of the directory containing this file with the path given
 	char * aux_path=path;
-	char aux_char=*path; //This character will be used to read char by char until a "/" is found to measure the lenght.
+	char aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
 	int slash_pos=strlen(path), found=0, last=strlen(path);
 
 	aux_path+=last-1;
@@ -97,13 +94,13 @@ int createFile(char *path)
 	new_file.type='F';
 	new_file.opened='N';
 
-	for(int i=0;i<40;++i){//traverse all inodes array to check if the file exists already
+	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
 		if(!strcmp(inodes[i].dir_path, path) || !strcmp(inodes[i].file_path, path) ){
 			return -1;
 		}
 	}
 	int i;
-	for(i=0;i<40;++i){//traverse all the inodes array and asign the first free space to this inode
+	for(i=0;i<NUM_INODES;++i){//traverse all the inodes array and asign the first free space to this inode
 		if(!strcmp(inodes[i].dir_path, "") && !strcmp(inodes[i].file_path, "")){
 			inodes[i]=new_file;
 			break;
@@ -112,7 +109,7 @@ int createFile(char *path)
 
 	//Adding a reference to the directory where the file is stored:
 	int coinciding_path=0, adv=0;
-	while(!coinciding_path && adv<40){
+	while(!coinciding_path && adv<NUM_INODES){
 		if(!strcmp(obtained_dir, inodes[adv].dir_path)){
 			coinciding_path=1;
 			inodes[i].parent = &inodes[adv];
@@ -127,7 +124,7 @@ int createFile(char *path)
 	if(!coinciding_path) return -2;
 
 	else{
-		for(int j=0;j<10;++j){//traverse all the inodes array and asign the first free space to this inode
+		for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
 			if(!inodes[adv].contents[j]){
 				inodes[adv].contents[j]=&inodes[i];
 				break;
@@ -151,37 +148,28 @@ int createFile(char *path)
  */
 int removeFile(char *path)
 {
-	int ret_value=0;
 	/*For removing a file we will have to remove the inode of the file itself,
 	clean the block where the file was stored and romove the reference to the inode
 	from its prent directory*/
 
 	//First we will check if the file's inode exists and remove it:
 
-	struct inode stored_in; //will contain a pointer to the inode of the directory containing the file.
-	bzero(&stored_in, sizeof(struct inode));
-
-	for(int i=0;i<40;++i){//traverse all inodes array to check if the file exists already
+	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists
 		if(!strcmp(inodes[i].file_path, path)){
 			//REMOVE HERE THE DATA STORED IN THE FILE BLOCK.
 
-			//Removing the reference from the parent directory of the file:
-			for(int j=0;j<10;++j){
-				if(!strcmp(inodes[i].parent->contents[j]->file_path, path)){
-					bzero(&inodes[i].parent->contents[j]->file_path, sizeof(inodes[0].file_path));
-					break;
+			for(int j=0;j<10;j++){
+				if(inodes[i].parent->contents[j]==&inodes[i]){
+					inodes[i].parent->contents[j]=NULL;
 				}
 			}
-
-			bzero(&inodes[i], sizeof(struct inode));
-			break;
+			//Removing the reference from the parent directory of the file:
+			memset(&inodes[i], 0, sizeof(struct inode));
+			return 0;
 		}
 	}
 
-	/*Now, using the parent directory stored in the inode of the file to be removed we will
-	remove the reference to the file*/
-
-	return ret_value;
+	return -1;
 }
 
 /*
@@ -235,7 +223,81 @@ int lseekFile(int fileDescriptor, long offset, int whence)
  */
 int mkDir(char *path)
 {
-	return -2;
+	//First we will check if the directory to be created already exists:
+	for(int x=0;x<NUM_INODES;++x){//traverse all inodes array to check if the file exists
+		if(!strcmp(inodes[x].dir_path, path)){
+			//In this case the directory to be created already exists.
+			return -1;
+			}
+		}
+
+	//Then we obtain the path of the directory containing this directory with the path given
+	char * aux_path=path;
+	char aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
+	int slash_pos=strlen(path), found=0, last=strlen(path);
+
+	aux_path+=last-1;
+	while(!found){
+		aux_char=*aux_path;
+		if(aux_char=='/')found=1;
+		else{
+			slash_pos--;
+			aux_path--;
+		}
+	}
+
+	char obtained_dir[sizeof(path)];
+	int size_path=sizeof(path);
+	bzero(obtained_dir, size_path);
+	memcpy(obtained_dir, path, slash_pos); //The obtained dir will be useful to place the newly created file as a content of the corresponding directory inode.
+
+	printf("Previous obtained path: %s\n", obtained_dir);
+
+	//Creating the inode for the new directory:
+	struct inode new_dir;
+	bzero(&new_dir, sizeof(struct inode));
+	strcpy(new_dir.dir_path, path);
+	new_dir.type='D';
+
+	int i;
+	for(i=0;i<NUM_INODES;++i){//traverse all the inodes array and asign the first free space to this inode
+		if(!strcmp(inodes[i].dir_path, "") && !strcmp(inodes[i].file_path, "")){
+
+			inodes[i]=new_dir;
+			break;
+		}
+	}
+
+	//Adding a reference to the directory where the file is stored:
+	int coinciding_path=0, adv=0;
+	while(!coinciding_path && adv<NUM_INODES){
+		if(!strcmp(obtained_dir, inodes[adv].dir_path)){
+			coinciding_path=1;
+			inodes[i].parent = &inodes[adv];
+		}
+		else{
+			adv++;
+		}
+	}
+
+	printf("Value of adv: %d\n", adv);
+
+	if(!coinciding_path) return -2;
+
+	else{
+		for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
+			if(!inodes[adv].contents[j]){
+				inodes[adv].contents[j]=&inodes[i];
+				break;
+			}
+		}
+	}
+
+	for(int y=0;y<=10;y++){
+		printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
+	}
+
+	return 0;
 }
 
 /*
@@ -244,7 +306,38 @@ int mkDir(char *path)
  */
 int rmDir(char *path)
 {
-	return -2;
+
+	//First we will check if the directory's inode exists and remove it:
+
+	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the directory exists
+		if(!strcmp(inodes[i].dir_path, path)){
+			//REMOVE HERE THE DATA STORED IN THE FILE BLOCK.
+			for(int k=0;k<10;++k){
+				//printf("A: %d, B: %d\n", i, k);
+				//printf("%c\n", inodes[i].contents[k]->type);
+
+				if(inodes[i].contents[k]!=NULL){
+					//The directory has contents inside
+					return -2;
+				}
+			}
+
+			for(int j=0;j<10;j++){
+				if(inodes[i].parent->contents[j]==&inodes[i]){
+					inodes[i].parent->contents[j]=NULL;
+				}
+			}
+			//Removing the inode:
+			memset(&inodes[i], 0, sizeof(struct inode));
+
+			for(int y=0;y<=10;y++){
+				printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
+			}
+			return 0;
+		}
+	}
+		//directory does not exist
+		return -1;
 }
 
 /*
