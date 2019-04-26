@@ -346,5 +346,21 @@ int rmDir(char *path)
  */
 int lsDir(char *path, int inodesDir[10], char namesDir[10][33])
 {
-	return -2;
+	//First we will check if the directory's inode exists and remove it:
+
+	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the directory exists
+		if(!strcmp(inodes[i].dir_path, path)){
+
+			for(int k=0;k<10;++k){
+				if(inodes[i].contents[k]!=NULL){
+				inodesDir[k]=inodes[i].contents[k]->block;
+				strcpy(namesDir[k],inodes[i].contents[k]->dir_path);
+			}
+			}
+
+			return 0;
+		}
+	}
+		//directory does not exist
+		return -1;
 }
