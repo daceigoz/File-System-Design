@@ -13,7 +13,6 @@
 #include <stdlib.h>
 
 #define NUM_INODES 40
-static int num_elements;
 
 static struct inode inodes[NUM_INODES];
 
@@ -27,6 +26,7 @@ int mkFS(long deviceSize)
 {
 	bzero(inodes, NUM_INODES*sizeof(struct inode));
 
+	printf("%ld\n", sizeof(struct inode));
 	//Intializing the root directory inode:
 	struct inode root;
 	bzero(&root, sizeof(struct inode));
@@ -95,7 +95,7 @@ int createFile(char *path)
 	new_file.opened='N';
 
 	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
-		if(!strcmp(inodes[i].dir_path, path) || !strcmp(inodes[i].file_path, path) ){
+		if(!strcmp(inodes[i].file_path, path) ){
 			return -1;
 		}
 	}
@@ -103,6 +103,7 @@ int createFile(char *path)
 	for(i=0;i<NUM_INODES;++i){//traverse all the inodes array and asign the first free space to this inode
 		if(!strcmp(inodes[i].dir_path, "") && !strcmp(inodes[i].file_path, "")){
 			inodes[i]=new_file;
+			inodes[i].id=i;
 			break;
 		}
 	}
@@ -132,11 +133,9 @@ int createFile(char *path)
 		}
 	}
 
-	for(int x=0;x<=num_elements;x++){
-		printf("Item in root: %s\n", inodes[0].contents[x]->file_path);
-	}
-
-	num_elements++;
+	/*for(int x=0;x<10;x++){
+		printf("Item in root: %s\n", inodes[1].contents[x]->file_path);
+	}*/
 
 
 	return ret_value;
@@ -223,6 +222,7 @@ int lseekFile(int fileDescriptor, long offset, int whence)
  */
 int mkDir(char *path)
 {
+	printf("Got into mkdir\n");
 	//First we will check if the directory to be created already exists:
 	for(int x=0;x<NUM_INODES;++x){//traverse all inodes array to check if the file exists
 		if(!strcmp(inodes[x].dir_path, path)){
@@ -237,9 +237,15 @@ int mkDir(char *path)
 	int slash_pos=strlen(path), found=0, last=strlen(path);
 
 	aux_path+=last-1;
-	while(!found){
+	while(found!=2){
 		aux_char=*aux_path;
-		if(aux_char=='/')found=1;
+		if(aux_char=='/'){
+			found++;
+			if(found==1){
+				slash_pos--;
+				aux_path--;
+			}
+		}
 		else{
 			slash_pos--;
 			aux_path--;
@@ -262,8 +268,8 @@ int mkDir(char *path)
 	int i;
 	for(i=0;i<NUM_INODES;++i){//traverse all the inodes array and asign the first free space to this inode
 		if(!strcmp(inodes[i].dir_path, "") && !strcmp(inodes[i].file_path, "")){
-
 			inodes[i]=new_dir;
+			inodes[i].id=i;
 			break;
 		}
 	}
@@ -272,6 +278,7 @@ int mkDir(char *path)
 	int coinciding_path=0, adv=0;
 	while(!coinciding_path && adv<NUM_INODES){
 		if(!strcmp(obtained_dir, inodes[adv].dir_path)){
+			printf("a\n");
 			coinciding_path=1;
 			inodes[i].parent = &inodes[adv];
 		}
@@ -293,9 +300,9 @@ int mkDir(char *path)
 		}
 	}
 
-	for(int y=0;y<=10;y++){
+	/*for(int y=0;y<=10;y++){
 		printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
-	}
+	}*/
 
 	return 0;
 }
@@ -330,9 +337,9 @@ int rmDir(char *path)
 			//Removing the inode:
 			memset(&inodes[i], 0, sizeof(struct inode));
 
-			for(int y=0;y<=10;y++){
+			/*for(int y=0;y<10;y++){
 				printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
-			}
+			}*/
 			return 0;
 		}
 	}
@@ -353,12 +360,21 @@ int lsDir(char *path, int inodesDir[10], char namesDir[10][33])
 
 			for(int k=0;k<10;++k){
 				if(inodes[i].contents[k]!=NULL){
-				inodesDir[k]=inodes[i].contents[k]->block;
-				strcpy(namesDir[k],inodes[i].contents[k]->dir_path);
-			}
+					inodesDir[k]=inodes[i].contents[k]->id;
+					if(inodes[i].contents[k]->type=='D'){
+						strcpy(namesDir[k],inodes[i].contents[k]->dir_path);
+					}
+					else if(inodes[i].contents[k]->type=='F'){
+						strcpy(namesDir[k],inodes[i].contents[k]->file_path);
+					}
+					else return -2; //Unknown file type.
+				}
 			}
 
 			return 0;
+		}
+		if(!strcmp(inodes[i].file_path, path)){
+			return -2; //The path is from a file not from a directory
 		}
 	}
 		//directory does not exist

@@ -65,7 +65,7 @@ int main()
 
 	///////
 
-	ret = mkDir("/dir1");
+	ret = mkDir("/dir1/");
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mkDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -75,7 +75,27 @@ int main()
 
 	///////
 
-	ret = mkDir("/dir2");
+	ret = createFile("/dir1/item.txt");
+	if (ret != 0)
+	{
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST createFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST createFile ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+	///////
+
+	ret = createFile("/dir1/item2.txt");
+	if (ret != 0)
+	{
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST createFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST createFile ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+	///////
+
+	ret = mkDir("/dir2/");
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mkDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -85,7 +105,7 @@ int main()
 
 	///////
 
-	ret = mkDir("/dir3");
+	ret = mkDir("/dir3/");
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mkDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -97,7 +117,7 @@ int main()
 
 	///////
 
-	ret = rmDir("/dir1");
+	ret = rmDir("/dir2/");
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST rmDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -105,7 +125,8 @@ int main()
 	}
 	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST rmDir ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
 
-	ret = mkDir("/dir4");
+  //////////////////////////////
+	ret = mkDir("/dir4/");
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mkDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -113,9 +134,12 @@ int main()
 	}
 	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mkDir ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
 
+  //////////////////////////////////
 	int inodesDir[10];
+	bzero(inodesDir, 10*sizeof(int));
 	char namesDir[10][33];
-	ret = lsDir("/dir4",inodesDir,namesDir);
+	bzero(namesDir, 10*33*sizeof(char));
+	ret = lsDir("/dir1/",inodesDir,namesDir);
 	if (ret != 0)
 	{
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST lsDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
@@ -123,6 +147,23 @@ int main()
 	}
 	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST lsDir ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
 
+	for(int i=0; i<10; i++){
+		if(namesDir[i]!=NULL) printf("%s\n", namesDir[i]);
+	}
+
+	bzero(inodesDir, 10*sizeof(int));
+	bzero(namesDir, 10*33*sizeof(char));
+	ret = lsDir("/",inodesDir,namesDir);
+	if (ret != 0)
+	{
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST lsDir ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST lsDir ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+	for(int i=0; i<10; i++){
+		if(namesDir[i]!=NULL) printf("%s\n", namesDir[i]);
+	}
 
 	///////
 
