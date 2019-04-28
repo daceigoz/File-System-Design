@@ -11,10 +11,16 @@
 #include "include/metadata.h"   // Type and structure declaration of the file system
 #include <string.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 
 #define NUM_INODES 40
 
 static struct inode inodes[NUM_INODES];
+
+static int fd; //File Descriptor for disk.dat
 
 
 /*
@@ -46,7 +52,41 @@ int mkFS(long deviceSize)
  */
 int mountFS(void)
 {
-	return -1;
+	//First we open the disk
+	fd=open("disk.dat",O_RDWR);
+	if(fd==-1){
+		printf("Error opening the disk");
+		return -1;
+	}
+	printf("File descriptor for disk.dat: %d\n", fd);
+
+	int cur_inode=0;
+	for(int i=0; i<8; i++){//For the blocks of inodes
+		char block[2048];
+		memset(block, '0', 2048*sizeof(char));
+		printf("Block1: %s\n", block);
+		char inode_block[5][sizeof(struct inode)];
+		for(int j=0; j<5; j++){
+			memcpy(inode_block[j], &inodes[cur_inode],sizeof(inode_block[j]));
+
+			cur_inode++;
+		}
+
+		for(int w=0; w<5; w++){
+			printf("%s\n",inode_block[w]);
+			strcpy(block, inode_block[w]);
+		}
+
+		bwrite(DEVICE_IMAGE, i, block);
+		bread(DEVICE_IMAGE, i, block);
+		printf("Block: %s\n", block);
+
+	}
+
+	//Now we create the bitmap to map the contents of the disk
+	//char bitmap[sizeof(disk)];
+
+	return 0;
 }
 
 /*
@@ -55,7 +95,8 @@ int mountFS(void)
  */
 int unmountFS(void)
 {
-	return -1;
+	int ret_val=close(fd);
+	return ret_val;
 }
 
 /*
@@ -177,7 +218,21 @@ int removeFile(char *path)
  */
 int openFile(char *path)
 {
-	return -2;
+	int found_file=0;
+	int i;
+	for(i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
+		if(!strcmp(inodes[i].file_path, path) ){
+			found_file=1;
+			break;
+		}
+	}
+
+	if(!found_file) return -1;
+
+	inodes[i].opened='Y';
+
+	inodes[i].seek_ptr=2048*inodes[i].block;
+	return inodes[i].id;
 }
 
 /*
@@ -186,6 +241,8 @@ int openFile(char *path)
  */
 int closeFile(int fileDescriptor)
 {
+	inodes[fileDescriptor].opened='N';
+	inodes[fileDescriptor].seek_ptr=2048*inodes[fileDescriptor].block;
 	return -1;
 }
 
@@ -195,6 +252,8 @@ int closeFile(int fileDescriptor)
  */
 int readFile(int fileDescriptor, void *buffer, int numBytes)
 {
+	bread(DEVICE_IMAGE, inodes[fileDescriptor].block, buffer);
+
 	return -1;
 }
 
@@ -213,7 +272,31 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int lseekFile(int fileDescriptor, long offset, int whence)
 {
-	return -1;
+switch(whence){
+	case 0:
+		inodes[fileDescriptor].seek_ptr=inodes[fileDescriptor].seek_ptr+offset;
+		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+			return -1;
+		}
+		return 0;
+
+	case 1:
+		inodes[fileDescriptor].seek_ptr=2048*(inodes[fileDescriptor].block+1)-1;
+		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+			return -1;
+		}
+		return 0;
+
+	case 2:
+		inodes[fileDescriptor].seek_ptr=2048*inodes[fileDescriptor].block;
+		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+			return -1;
+		}
+		return 0;
+
+	default:
+		return -1;
+	}
 }
 
 /*
