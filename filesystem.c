@@ -64,22 +64,16 @@ int mountFS(void)
 	for(int i=0; i<8; i++){//For the blocks of inodes
 		char block[2048];
 		memset(block, '0', 2048*sizeof(char));
-		printf("Block1: %s\n", block);
+		printf("Block%d: %s\n", i,block);
 		char inode_block[5][sizeof(struct inode)];
 		for(int j=0; j<5; j++){
-			memcpy(inode_block[j], &inodes[cur_inode],sizeof(inode_block[j]));
-
+			memcpy(inode_block[j], &inodes[cur_inode],sizeof(struct inode));
+			memcpy(block, &inode_block[j],sizeof(struct inode));
 			cur_inode++;
-		}
-
-		for(int w=0; w<5; w++){
-			printf("%s\n",inode_block[w]);
-			strcpy(block, inode_block[w]);
 		}
 
 		bwrite(DEVICE_IMAGE, i, block);
 		bread(DEVICE_IMAGE, i, block);
-		printf("Block: %s\n", block);
 
 	}
 
@@ -252,9 +246,12 @@ int closeFile(int fileDescriptor)
  */
 int readFile(int fileDescriptor, void *buffer, int numBytes)
 {
-	bread(DEVICE_IMAGE, inodes[fileDescriptor].block, buffer);
+
+	if(bread(DEVICE_IMAGE, inodes[fileDescriptor].block, (char*)buffer)==-1){
 
 	return -1;
+	}
+	return numBytes;
 }
 
 /*
@@ -263,7 +260,11 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int writeFile(int fileDescriptor, void *buffer, int numBytes)
 {
+
+	if(bwrite(DEVICE_IMAGE, inodes[fileDescriptor].block, (char*)buffer)==-1){
 	return -1;
+	}
+	return numBytes;
 }
 
 /*
