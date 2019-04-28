@@ -21,6 +21,7 @@ static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
 
 typedef struct inode{
 
+  int id;
   char dir_path[99];
   char file_path[132];
   char type; //This will be either "F" for file or "D" for directory.
