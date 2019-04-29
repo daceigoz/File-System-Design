@@ -20,8 +20,13 @@
 
 static struct inode inodes[NUM_INODES];
 
-static int fd; //File Descriptor for disk.dat
+//static int fd; //File Descriptor for disk.dat
 
+static int mounted=0;//Boolean to indicate if the disk is mounted (0 is closed 1 is open)
+
+static char bitmap[5]; //These will represent the 40 blocks that can be used for files.
+
+static int num_items; //Will count the amount of generated directories and files to avoid exceeding the maximum amount.
 
 /*
  * @brief 	Generates the proper file system structure in a storage device, as designed by the student.
@@ -31,8 +36,8 @@ static int fd; //File Descriptor for disk.dat
 int mkFS(long deviceSize)
 {
 	bzero(inodes, NUM_INODES*sizeof(struct inode));
+	bzero(bitmap, 5*sizeof(char));
 
-	printf("%ld\n", sizeof(struct inode));
 	//Intializing the root directory inode:
 	struct inode root;
 	bzero(&root, sizeof(struct inode));
@@ -41,7 +46,6 @@ int mkFS(long deviceSize)
 	//Everything else for the inode shall remain empty for the root in the initial state.
 
 	inodes[0]=root;
-
 
 	return 0;
 }
@@ -52,34 +56,24 @@ int mkFS(long deviceSize)
  */
 int mountFS(void)
 {
-	//First we open the disk
-	fd=open("disk.dat",O_RDWR);
-	if(fd==-1){
-		printf("Error opening the disk");
+	if(mounted){
+		printf("The disk is already mounted\n");
 		return -1;
 	}
-	printf("File descriptor for disk.dat: %d\n", fd);
 
 	int cur_inode=0;
 	for(int i=0; i<8; i++){//For the blocks of inodes
-		char block[2048];
-		memset(block, '0', 2048*sizeof(char));
-		printf("Block%d: %s\n", i,block);
+
 		char inode_block[5][sizeof(struct inode)];
 		for(int j=0; j<5; j++){
 			memcpy(inode_block[j], &inodes[cur_inode],sizeof(struct inode));
-			memcpy(block, &inode_block[j],sizeof(struct inode));
 			cur_inode++;
 		}
 
-		bwrite(DEVICE_IMAGE, i, block);
-		bread(DEVICE_IMAGE, i, block);
-
+		bwrite(DEVICE_IMAGE, i, (char *) inode_block); //write all the inodes to the current block
 	}
 
-	//Now we create the bitmap to map the contents of the disk
-	//char bitmap[sizeof(disk)];
-
+	mounted=1;
 	return 0;
 }
 
@@ -89,8 +83,8 @@ int mountFS(void)
  */
 int unmountFS(void)
 {
-	int ret_val=close(fd);
-	return ret_val;
+	mounted=0;
+	return mounted;
 }
 
 /*
@@ -99,6 +93,15 @@ int unmountFS(void)
  */
 int createFile(char *path)
 {
+	if(num_items>40) {
+		printf("There are too many elements in the File System\n");
+		return -2;
+	}
+
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	int ret_value=0;
 	//First we obtain the path of the directory containing this file with the path given
 	char * aux_path=path;
@@ -120,6 +123,17 @@ int createFile(char *path)
 	bzero(obtained_dir, size_path);
 	memcpy(obtained_dir, path, slash_pos); //The obtained dir will be useful to place the newly created file as a content of the corresponding directory inode.
 
+	int f=0, counter=0;
+	for(int k=0; k<NUM_INODES; k++){
+		if(!strcmp(obtained_dir, inodes[k].dir_path)) f=1;
+		counter++;
+	}
+	counter--;
+	if(!f){
+		printf("The directory where the file wants to be created does not exist\n");
+		return -2;
+	}
+
 	printf("Previous obtained path: %s\n", obtained_dir);
 
 	//Creating the inode for the file:
@@ -128,6 +142,15 @@ int createFile(char *path)
 	strcpy(new_file.file_path, path);
 	new_file.type='F';
 	new_file.opened='N';
+	int n;
+	for(n=0;n<NUM_INODES;n++){
+		if(!bitmap_getbit(bitmap,n)){
+			bitmap_setbit(bitmap,n,1);
+			break;
+		}
+	}
+	new_file.block=n+8;//We add up 8 as the first 8 blocks are for inodes
+	printf("Block for data: %d\n", new_file.block);
 
 	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
 		if(!strcmp(inodes[i].file_path, path) ){
@@ -157,22 +180,36 @@ int createFile(char *path)
 
 	printf("Value of adv: %d\n", adv);
 
-	if(!coinciding_path) return -2;
 
-	else{
-		for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
-			if(!inodes[adv].contents[j]){
-				inodes[adv].contents[j]=&inodes[i];
-				break;
-			}
+	for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
+		if(!inodes[adv].contents[j]){
+			inodes[adv].contents[j]=&inodes[i];
+			break;
 		}
 	}
+
 
 	/*for(int x=0;x<10;x++){
 		printf("Item in root: %s\n", inodes[1].contents[x]->file_path);
 	}*/
 
 
+	//lastly we have to update the disk if there is any modification
+	if (mounted){
+		int cur_inode=0;
+		for(int x=0; x<8; x++){//For the blocks of inodes
+			char inode_block[5][sizeof(struct inode)];
+
+			for(int y=0; y<5; y++){
+				memcpy(inode_block[y], &inodes[cur_inode],sizeof(struct inode));
+				cur_inode++;
+			}
+
+			bwrite(DEVICE_IMAGE, x, (char *) inode_block); //write all the inodes to the current block
+		}
+	}
+
+	num_items++;
 	return ret_value;
 }
 
@@ -182,6 +219,10 @@ int createFile(char *path)
  */
 int removeFile(char *path)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	/*For removing a file we will have to remove the inode of the file itself,
 	clean the block where the file was stored and romove the reference to the inode
 	from its prent directory*/
@@ -191,6 +232,11 @@ int removeFile(char *path)
 	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists
 		if(!strcmp(inodes[i].file_path, path)){
 			//REMOVE HERE THE DATA STORED IN THE FILE BLOCK.
+			if(inodes[i].opened=='Y'){
+				printf("The file is opened so it cannot be deleted.\n");
+				return -2;
+			}
+			bitmap_setbit(bitmap,(inodes[i].block-8),0);
 
 			for(int j=0;j<10;j++){
 				if(inodes[i].parent->contents[j]==&inodes[i]){
@@ -199,6 +245,22 @@ int removeFile(char *path)
 			}
 			//Removing the reference from the parent directory of the file:
 			memset(&inodes[i], 0, sizeof(struct inode));
+
+			if (mounted){
+				int cur_inode=0;
+				for(int x=0; x<8; x++){//For the blocks of inodes
+					char inode_block[5][sizeof(struct inode)];
+					memset(inode_block, '0', 5*sizeof(struct inode));
+					for(int y=0; y<5; y++){
+						memcpy(inode_block[y], &inodes[cur_inode],sizeof(struct inode));
+						cur_inode++;
+					}
+
+					bwrite(DEVICE_IMAGE, x, (char *) inode_block); //write all the inodes to the current block
+				}
+			}
+
+			num_items--;
 			return 0;
 		}
 	}
@@ -212,6 +274,10 @@ int removeFile(char *path)
  */
 int openFile(char *path)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	int found_file=0;
 	int i;
 	for(i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
@@ -225,7 +291,7 @@ int openFile(char *path)
 
 	inodes[i].opened='Y';
 
-	inodes[i].seek_ptr=2048*inodes[i].block;
+	inodes[i].seek_ptr=0;
 	return inodes[i].id;
 }
 
@@ -235,9 +301,12 @@ int openFile(char *path)
  */
 int closeFile(int fileDescriptor)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	inodes[fileDescriptor].opened='N';
-	inodes[fileDescriptor].seek_ptr=2048*inodes[fileDescriptor].block;
-	return -1;
+	return 0;
 }
 
 /*
@@ -246,6 +315,10 @@ int closeFile(int fileDescriptor)
  */
 int readFile(int fileDescriptor, void *buffer, int numBytes)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 
 	if(bread(DEVICE_IMAGE, inodes[fileDescriptor].block, (char*)buffer)==-1){
 
@@ -260,10 +333,29 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int writeFile(int fileDescriptor, void *buffer, int numBytes)
 {
-
-	if(bwrite(DEVICE_IMAGE, inodes[fileDescriptor].block, (char*)buffer)==-1){
-	return -1;
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
 	}
+	int i;
+	for(i=0;i<40;i++){
+		if(inodes[i].id==fileDescriptor){
+			break;
+		}
+	}
+	if(i==40){
+		printf("The file descriptor does not correspond to any existing file\n");
+		return -1;
+	}
+	char auxbuffer[2048];
+	bzero(auxbuffer, sizeof(auxbuffer));
+	strcpy(auxbuffer, (char *)buffer);
+	printf("buffer: %s\n", (char *)buffer);
+	bwrite(DEVICE_IMAGE, inodes[i].block, (char *)auxbuffer);
+	char rdbuffer[2048];
+	bzero(rdbuffer, sizeof(rdbuffer));
+	bread(DEVICE_IMAGE, inodes[i].block, rdbuffer);
+	printf("Auxbuf: %s\n", rdbuffer);
 	return numBytes;
 }
 
@@ -273,6 +365,10 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int lseekFile(int fileDescriptor, long offset, int whence)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 switch(whence){
 	case 0:
 		inodes[fileDescriptor].seek_ptr=inodes[fileDescriptor].seek_ptr+offset;
@@ -306,7 +402,15 @@ switch(whence){
  */
 int mkDir(char *path)
 {
-	printf("Got into mkdir\n");
+	if(num_items>40) {
+		printf("There are too many elements in the File System\n");
+		return -2;
+	}
+
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	//First we will check if the directory to be created already exists:
 	for(int x=0;x<NUM_INODES;++x){//traverse all inodes array to check if the file exists
 		if(!strcmp(inodes[x].dir_path, path)){
@@ -388,6 +492,21 @@ int mkDir(char *path)
 		printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
 	}*/
 
+	if (mounted){
+		int cur_inode=0;
+		for(int x=0; x<8; x++){//For the blocks of inodes
+			char inode_block[5][sizeof(struct inode)];
+
+			for(int y=0; y<5; y++){
+				memcpy(inode_block[y], &inodes[cur_inode],sizeof(struct inode));
+				cur_inode++;
+			}
+
+			bwrite(DEVICE_IMAGE, x, (char *) inode_block); //write all the inodes to the current block
+		}
+	}
+
+	num_items++;
 	return 0;
 }
 
@@ -397,6 +516,10 @@ int mkDir(char *path)
  */
 int rmDir(char *path)
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 
 	//First we will check if the directory's inode exists and remove it:
 
@@ -424,6 +547,22 @@ int rmDir(char *path)
 			/*for(int y=0;y<10;y++){
 				printf("Item in root: %s\n", inodes[0].contents[y]->dir_path);
 			}*/
+
+			if (mounted){
+				int cur_inode=0;
+				for(int x=0; x<8; x++){//For the blocks of inodes
+					char inode_block[5][sizeof(struct inode)];
+
+					for(int y=0; y<5; y++){
+						memcpy(inode_block[y], &inodes[cur_inode],sizeof(struct inode));
+						cur_inode++;
+					}
+
+					bwrite(DEVICE_IMAGE, x, (char *) inode_block); //write all the inodes to the current block
+				}
+			}
+
+			num_items--;
 			return 0;
 		}
 	}
@@ -437,6 +576,10 @@ int rmDir(char *path)
  */
 int lsDir(char *path, int inodesDir[10], char namesDir[10][33])
 {
+	if(!mounted){
+		printf("disk not mounted yet\n");
+		return -1;
+	}
 	//First we will check if the directory's inode exists and remove it:
 
 	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the directory exists
