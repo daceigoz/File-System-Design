@@ -471,7 +471,7 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
 		return -1;
 	}
 	if(numBytes>=strlen(buffer)){//To avoid copying the end of file character
-		numBytes=strlen(buffer)-1;
+		numBytes=strlen(buffer);
 	}
 	if(inodes[i].opened=='N'){
 		printf("File is not opened\n");
@@ -520,7 +520,7 @@ switch(whence){//Depending on the whence the pointer needs to be updated
 		}
 		return 0;
 
-	case 1://Beggining of the file
+	case 2://End of the file
 		inodes[fileDescriptor].seek_ptr=2048;
 		if((inodes[fileDescriptor].seek_ptr>2048) || inodes[fileDescriptor].seek_ptr<0){
 			printf("The pointer goes out of bounds\n");
@@ -528,7 +528,7 @@ switch(whence){//Depending on the whence the pointer needs to be updated
 		}
 		return 0;
 
-	case 2://End of the file
+	case 1://Beggining of the file
 		inodes[fileDescriptor].seek_ptr=0;
 		if((inodes[fileDescriptor].seek_ptr>2048) || inodes[fileDescriptor].seek_ptr<0){
 			printf("The pointer goes out of bounds\n");
