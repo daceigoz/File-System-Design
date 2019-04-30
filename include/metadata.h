@@ -14,7 +14,22 @@ static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
   else
     bitmap_[(i_ >> 3)] &= ~(1 << (i_ & 0x07));
 }
+#ifndef STRUCT_SUPERBLOCK
+#define STRUCT_SUPERBLOCK
 
+typedef struct sBlock{
+
+  int mounted;//Boolean to indicate if the disk is mounted (0 is closed 1 is open)
+
+  char bitmap[5]; //These will represent the 40 blocks that can be used for files.
+
+  int num_items; //Will count the amount of generated directories and files to avoid exceeding the maximum amount.
+
+  int partitionBlocks;//Size of the partition of the disk that will be used for the File System
+
+} sBlock;
+
+#endif
 
 #ifndef STRUCT_INODE
 #define STRUCT_INODE
