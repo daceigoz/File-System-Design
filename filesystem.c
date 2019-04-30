@@ -28,6 +28,7 @@ static char bitmap[5]; //These will represent the 40 blocks that can be used for
 
 static int num_items; //Will count the amount of generated directories and files to avoid exceeding the maximum amount.
 
+static int partitionBlocks;//Size of the partition of the disk that will be used for the File System
 /*
  * @brief 	Generates the proper file system structure in a storage device, as designed by the student.
  * @return 	0 if success, -1 otherwise.
@@ -35,9 +36,17 @@ static int num_items; //Will count the amount of generated directories and files
 
 int mkFS(long deviceSize)
 {
+	if(deviceSize<50000 || deviceSize>10000000){
+		printf("The device size must be between 50Kb and 10Mb\n");
+		return -1;
+	}
+	if(deviceSize%2048!=0){
+		printf("The device size must be a multiple of the block size: %d\n", BLOCK_SIZE);
+		return -1;
+	}
+	partitionBlocks=(int)deviceSize/2048;
 	bzero(inodes, NUM_INODES*sizeof(struct inode));
 	bzero(bitmap, 5*sizeof(char));
-
 	//Intializing the root directory inode:
 	struct inode root;
 	bzero(&root, sizeof(struct inode));
@@ -46,7 +55,6 @@ int mkFS(long deviceSize)
 	//Everything else for the inode shall remain empty for the root in the initial state.
 
 	inodes[0]=root;
-
 	return 0;
 }
 
@@ -65,14 +73,19 @@ int mountFS(void)
 	for(int i=0; i<8; i++){//For the blocks of inodes
 
 		char inode_block[5][sizeof(struct inode)];
-		for(int j=0; j<5; j++){
+		int j;
+		for(j=0; j<5; j++){
 			memcpy(inode_block[j], &inodes[cur_inode],sizeof(struct inode));
 			cur_inode++;
 		}
 
 		bwrite(DEVICE_IMAGE, i, (char *) inode_block); //write all the inodes to the current block
-	}
 
+	}
+	char auxblock[2048];
+	bzero(auxblock, sizeof(auxblock));
+	strcpy(auxblock,bitmap);
+	bwrite(DEVICE_IMAGE,8,auxblock);
 	mounted=1;
 	return 0;
 }
@@ -100,12 +113,35 @@ int createFile(char *path)
 
 	if(!mounted){
 		printf("disk not mounted yet\n");
-		return -1;
+		return -2;
+	}
+	if(strlen(path)>132){
+		printf("Name of the path too long, try shortening the names of the directories\n");
+		return -2;
 	}
 	int ret_value=0;
-	//First we obtain the path of the directory containing this file with the path given
+
+	//We also need to check the depth is not greater than 3, for that we will count the '/' of the path
 	char * aux_path=path;
-	char aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
+	char aux_char=*path;
+	int depth=0;
+	while((aux_char=*aux_path)!='\0'){
+		if(aux_char=='/'){
+			depth++;
+			aux_path++;
+
+		}
+		else{
+			aux_path++;
+		}
+	}
+	if(depth>5){
+		printf("The maximum depth is 3, you cannot create a directory here\n");
+		return -2;
+	}
+	//Then we obtain the path of the directory containing this file with the path given
+	 aux_path=path;
+	 aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
 	int slash_pos=strlen(path), found=0, last=strlen(path);
 
 	aux_path+=last-1;
@@ -118,8 +154,8 @@ int createFile(char *path)
 		}
 	}
 
-	char obtained_dir[sizeof(path)];
-	int size_path=sizeof(path);
+	char obtained_dir[strlen(path)];
+	int size_path=strlen(path);
 	bzero(obtained_dir, size_path);
 	memcpy(obtained_dir, path, slash_pos); //The obtained dir will be useful to place the newly created file as a content of the corresponding directory inode.
 
@@ -134,7 +170,6 @@ int createFile(char *path)
 		return -2;
 	}
 
-	printf("Previous obtained path: %s\n", obtained_dir);
 
 	//Creating the inode for the file:
 	struct inode new_file;
@@ -145,15 +180,29 @@ int createFile(char *path)
 	int n;
 	for(n=0;n<NUM_INODES;n++){
 		if(!bitmap_getbit(bitmap,n)){
+			if(n>partitionBlocks-9){//To avoid creating a block outside the partition
+				printf("No space remaining in the disk for files\n");
+				return -2;
+			}
+			char checkblock[2048];
+			bzero(checkblock, sizeof(checkblock));
+			if(bread(DEVICE_IMAGE, n+9, checkblock)==-1){
+				printf("No space remaining in the disk for files\n");
+				return -2;
+			}
 			bitmap_setbit(bitmap,n,1);
+			char auxblock[2048];
+			bzero(auxblock, sizeof(auxblock));
+			strcpy(auxblock,bitmap);
+			bwrite(DEVICE_IMAGE,8,auxblock);
 			break;
 		}
 	}
-	new_file.block=n+8;//We add up 8 as the first 8 blocks are for inodes
-	printf("Block for data: %d\n", new_file.block);
+	new_file.block=n+9;//We add up 9 as the first 8 blocks are for inodes plus 1 of the bitmap
 
 	for(int i=0;i<NUM_INODES;++i){//traverse all inodes array to check if the file exists already
 		if(!strcmp(inodes[i].file_path, path) ){
+			printf("The file exist already\n");
 			return -1;
 		}
 	}
@@ -178,16 +227,24 @@ int createFile(char *path)
 		}
 	}
 
-	printf("Value of adv: %d\n", adv);
+	if(strlen(path)-strlen(obtained_dir)>32){
+		printf("Name of the file too long, please insert a name under 32 characters\n");
+		return -1;
+	}
 
 
-	for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
+	int checkparent=0;
+	for(int j=0;j<10;++j){//traverse all the inodes array and asign the first free space to this inode
 		if(!inodes[adv].contents[j]){
 			inodes[adv].contents[j]=&inodes[i];
+			checkparent++;
 			break;
 		}
 	}
-
+	if(!checkparent){
+		printf("Not enough space in the directory\n");
+		return -1;
+	}
 
 	/*for(int x=0;x<10;x++){
 		printf("Item in root: %s\n", inodes[1].contents[x]->file_path);
@@ -237,6 +294,10 @@ int removeFile(char *path)
 				return -2;
 			}
 			bitmap_setbit(bitmap,(inodes[i].block-8),0);
+			char auxblock[2048];
+			bzero(auxblock, sizeof(auxblock));
+			strcpy(auxblock,bitmap);
+			bwrite(DEVICE_IMAGE,8,auxblock);
 
 			for(int j=0;j<10;j++){
 				if(inodes[i].parent->contents[j]==&inodes[i]){
@@ -264,7 +325,7 @@ int removeFile(char *path)
 			return 0;
 		}
 	}
-
+	printf("Error removing the file\n");
 	return -1;
 }
 
@@ -287,7 +348,10 @@ int openFile(char *path)
 		}
 	}
 
-	if(!found_file) return -1;
+	if(!found_file){
+		printf("The file that is being opened does not exist\n");
+		return -1;
+	}
 
 	inodes[i].opened='Y';
 
@@ -319,11 +383,32 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
 		printf("disk not mounted yet\n");
 		return -1;
 	}
-
-	if(bread(DEVICE_IMAGE, inodes[fileDescriptor].block, (char*)buffer)==-1){
-
-	return -1;
+	int i;
+	for(i=0;i<40;i++){
+		if(inodes[i].id==fileDescriptor){
+			break;
+		}
 	}
+	if(i==40){
+		printf("The file descriptor does not correspond to any existing file\n");
+		return -1;
+	}
+
+	if(inodes[i].opened=='N'){
+		printf("File is not opened\n");
+		return -1;
+	}
+	if(numBytes+inodes[i].seek_ptr>2048){
+		numBytes=2048-inodes[i].seek_ptr;
+	}
+	//Now we perform the read
+	char rdbuffer[2048];
+	bzero(rdbuffer, sizeof(rdbuffer));
+	bread(DEVICE_IMAGE, inodes[i].block, rdbuffer);
+	memcpy(buffer,(void *)rdbuffer+inodes[i].seek_ptr,numBytes);
+
+	inodes[i].seek_ptr+=numBytes;
+
 	return numBytes;
 }
 
@@ -347,15 +432,27 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
 		printf("The file descriptor does not correspond to any existing file\n");
 		return -1;
 	}
-	char auxbuffer[2048];
-	bzero(auxbuffer, sizeof(auxbuffer));
-	strcpy(auxbuffer, (char *)buffer);
-	printf("buffer: %s\n", (char *)buffer);
-	bwrite(DEVICE_IMAGE, inodes[i].block, (char *)auxbuffer);
+	if(numBytes>=strlen(buffer)){//To avoid copying the end of file character
+		numBytes=strlen(buffer)-1;
+	}
+	if(inodes[i].opened=='N'){
+		printf("File is not opened\n");
+		return -1;
+	}
+	if(numBytes+inodes[i].seek_ptr>2048){
+		numBytes=2048-inodes[i].seek_ptr;
+	}
+
+	//Now we just need to write on the file
 	char rdbuffer[2048];
 	bzero(rdbuffer, sizeof(rdbuffer));
 	bread(DEVICE_IMAGE, inodes[i].block, rdbuffer);
-	printf("Auxbuf: %s\n", rdbuffer);
+	//strncpy(rdbuffer+inodes[i].seek_ptr,buffer,numBytes);
+	memcpy(rdbuffer+inodes[i].seek_ptr,buffer,numBytes);
+
+	bwrite(DEVICE_IMAGE, inodes[i].block, (char *)rdbuffer);
+	inodes[i].seek_ptr+=numBytes;
+
 	return numBytes;
 }
 
@@ -372,26 +469,30 @@ int lseekFile(int fileDescriptor, long offset, int whence)
 switch(whence){
 	case 0:
 		inodes[fileDescriptor].seek_ptr=inodes[fileDescriptor].seek_ptr+offset;
-		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+		if((inodes[fileDescriptor].seek_ptr>2048) || inodes[fileDescriptor].seek_ptr<0){
+			printf("The pointer goes out of bounds\n");
 			return -1;
 		}
 		return 0;
 
 	case 1:
-		inodes[fileDescriptor].seek_ptr=2048*(inodes[fileDescriptor].block+1)-1;
-		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+		inodes[fileDescriptor].seek_ptr=2048;
+		if((inodes[fileDescriptor].seek_ptr>2048) || inodes[fileDescriptor].seek_ptr<0){
+			printf("The pointer goes out of bounds\n");
 			return -1;
 		}
 		return 0;
 
 	case 2:
-		inodes[fileDescriptor].seek_ptr=2048*inodes[fileDescriptor].block;
-		if((inodes[fileDescriptor].seek_ptr>(2048*(inodes[fileDescriptor].block+1)-1)) || inodes[fileDescriptor].seek_ptr<(2048*(inodes[fileDescriptor].block))){
+		inodes[fileDescriptor].seek_ptr=0;
+		if((inodes[fileDescriptor].seek_ptr>2048) || inodes[fileDescriptor].seek_ptr<0){
+			printf("The pointer goes out of bounds\n");
 			return -1;
 		}
 		return 0;
 
 	default:
+		printf("Unexpected error while performing lseek\n");
 		return -1;
 	}
 }
@@ -409,19 +510,42 @@ int mkDir(char *path)
 
 	if(!mounted){
 		printf("disk not mounted yet\n");
-		return -1;
+		return -2;
 	}
-	//First we will check if the directory to be created already exists:
+	if(strlen(path)>99){
+		printf("Name of the path too long, try shortening the names of the directories\n");
+		return -2;
+	}
+	//Now we will check if the directory to be created already exists:
 	for(int x=0;x<NUM_INODES;++x){//traverse all inodes array to check if the file exists
 		if(!strcmp(inodes[x].dir_path, path)){
 			//In this case the directory to be created already exists.
+			printf("The directory already exists\n");
 			return -1;
 			}
 		}
+	//We also need to check the depth is not greater than 3, for that we will count the '/' of the path
+	char * aux_path=path;
+	char aux_char=*path;
+	int depth=0;
+	while((aux_char=*aux_path)!='\0'){
+		if(aux_char=='/'){
+			depth++;
+			aux_path++;
+
+		}
+		else{
+			aux_path++;
+		}
+	}
+	if(depth>5){
+		printf("The maximum depth is 3, you cannot create a directory here\n");
+		return -2;
+	}
 
 	//Then we obtain the path of the directory containing this directory with the path given
-	char * aux_path=path;
-	char aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
+	aux_path=path;
+	aux_char=*path; //This character will be used to read char by char until an "/" is found to measure the length.
 	int slash_pos=strlen(path), found=0, last=strlen(path);
 
 	aux_path+=last-1;
@@ -440,12 +564,15 @@ int mkDir(char *path)
 		}
 	}
 
-	char obtained_dir[sizeof(path)];
-	int size_path=sizeof(path);
+	char obtained_dir[strlen(path)];
+	int size_path=strlen(path);
 	bzero(obtained_dir, size_path);
 	memcpy(obtained_dir, path, slash_pos); //The obtained dir will be useful to place the newly created file as a content of the corresponding directory inode.
 
-	printf("Previous obtained path: %s\n", obtained_dir);
+	if(strlen(path)-strlen(obtained_dir)>32){
+		printf("Name of the directory too long, it must have under 32 characters\n");
+		return -2;
+	}
 
 	//Creating the inode for the new directory:
 	struct inode new_dir;
@@ -466,7 +593,6 @@ int mkDir(char *path)
 	int coinciding_path=0, adv=0;
 	while(!coinciding_path && adv<NUM_INODES){
 		if(!strcmp(obtained_dir, inodes[adv].dir_path)){
-			printf("a\n");
 			coinciding_path=1;
 			inodes[i].parent = &inodes[adv];
 		}
@@ -475,16 +601,24 @@ int mkDir(char *path)
 		}
 	}
 
-	printf("Value of adv: %d\n", adv);
-
-	if(!coinciding_path) return -2;
+	if(!coinciding_path){
+		printf("There is no such directory\n");
+		return -2;
+	}
 
 	else{
-		for(int j=0;j<NUM_INODES;++j){//traverse all the inodes array and asign the first free space to this inode
+
+		int checkparent=0;
+		for(int j=0;j<10;++j){//traverse all the inodes array and asign the first free space to this inode
 			if(!inodes[adv].contents[j]){
 				inodes[adv].contents[j]=&inodes[i];
+				checkparent++;
 				break;
 			}
+		}
+		if(!checkparent){
+			printf("Not enough space in the directory\n");
+			return -1;
 		}
 	}
 
@@ -532,6 +666,7 @@ int rmDir(char *path)
 
 				if(inodes[i].contents[k]!=NULL){
 					//The directory has contents inside
+					printf("The directory has contents inside\n");
 					return -2;
 				}
 			}
@@ -567,6 +702,7 @@ int rmDir(char *path)
 		}
 	}
 		//directory does not exist
+		printf("The directory does not exist\n");
 		return -1;
 }
 
@@ -590,20 +726,28 @@ int lsDir(char *path, int inodesDir[10], char namesDir[10][33])
 					inodesDir[k]=inodes[i].contents[k]->id;
 					if(inodes[i].contents[k]->type=='D'){
 						strcpy(namesDir[k],inodes[i].contents[k]->dir_path);
+						printf("%s\n", inodes[i].contents[k]->dir_path);
 					}
 					else if(inodes[i].contents[k]->type=='F'){
 						strcpy(namesDir[k],inodes[i].contents[k]->file_path);
+						printf("%s\n", inodes[i].contents[k]->file_path);
 					}
-					else return -2; //Unknown file type.
+					else {//Unknown file type.
+						printf("Unknown element type\n");
+						return -2;
+					}
 				}
 			}
+
 
 			return 0;
 		}
 		if(!strcmp(inodes[i].file_path, path)){
+			printf("The path of the arguments is from a file. This path is required to be from a directory\n");
 			return -2; //The path is from a file not from a directory
 		}
 	}
 		//directory does not exist
+		printf("The directory does not exist\n");
 		return -1;
 }
